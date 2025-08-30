@@ -1,0 +1,120 @@
+{
+  "canonical_fields": [
+    {
+      "key": "student_name",
+      "label_he": "שם תלמיד/ה",
+      "required": true,
+      "examples": [
+        "שם תלמיד",
+        "תלמיד",
+        "שם"
+      ]
+    },
+    {
+      "key": "class_name",
+      "label_he": "כיתה/קבוצה",
+      "required": false,
+      "examples": [
+        "כיתה",
+        "קבוצה"
+      ]
+    },
+    {
+      "key": "semester",
+      "label_he": "סמסטר (א/ב)",
+      "required": false,
+      "examples": [
+        "סמסטר",
+        "מחצית"
+      ]
+    },
+    {
+      "key": "date",
+      "label_he": "תאריך",
+      "required": false,
+      "examples": [
+        "תאריך",
+        "Date"
+      ]
+    },
+    {
+      "key": "quiz_avg",
+      "label_he": "ממוצע בחנים",
+      "required": false,
+      "examples": [
+        "ממוצע בחנים"
+      ]
+    },
+    {
+      "key": "quarter_exam",
+      "label_he": "סופי מבחן רבע",
+      "required": false,
+      "examples": [
+        "מבחן רבע",
+        "רבעון"
+      ]
+    },
+    {
+      "key": "midterm_mock",
+      "label_he": "סופי מתכונת מחצית",
+      "required": false,
+      "examples": [
+        "מתכונת",
+        "מועד א"
+      ]
+    },
+    {
+      "key": "half_semester_final",
+      "label_he": "סופי חציון/מחצית",
+      "required": false,
+      "examples": [
+        "חציון",
+        "מחצית"
+      ]
+    },
+    {
+      "key": "national_percentile",
+      "label_he": "אחוזון ארצי",
+      "required": false,
+      "examples": [
+        "אחוזון ארצי",
+        "אחוזון"
+      ]
+    },
+    {
+      "key": "teacher_comment",
+      "label_he": "הערכת המורה (טקסט חופשי)",
+      "required": false,
+      "examples": [
+        "הערכת המורה"
+      ]
+    },
+    {
+      "key": "coordinator_comment",
+      "label_he": "הערכת הרכז (טקסט חופשי)",
+      "required": false,
+      "examples": [
+        "הערכת הרכז"
+      ]
+    },
+    {
+      "key": "homework_rate",
+      "label_he": "הגשת שיעורי בית (%)",
+      "required": false,
+      "examples": [
+        "שיעורי בית",
+        "הגשה"
+      ]
+    }
+  ],
+  "weights_default": {
+    "quiz_avg": 0.2,
+    "quarter_exam": 0.3,
+    "midterm_mock": 0.2,
+    "half_semester_final": 0.3
+  },
+  "thresholds_default": {
+    "low_percentile": 25,
+    "significant_drop_points": 10
+  }
+}
