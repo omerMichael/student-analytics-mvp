@@ -18,9 +18,7 @@
 
 ---
 
-## 🖼️ הדגמה
-![demo](https://via.placeholder.com/800x400.png?text=Demo+Screenshot)  
-*(ניתן להחליף ב-Screenshot אמיתי של המערכת שלך)*
+
 
 ---
 
