@@ -16,6 +16,10 @@ CANON = canonical_map(SCHEMA)
 # Initialize database connection
 conn = init_db()
 
+# In-memory store for teacher comments
+if "teacher_comments" not in st.session_state:
+    st.session_state["teacher_comments"] = {}
+
 # Simple authentication data
 USERS = {
     "teacher": {"password": "teach", "role": "מורה"},
@@ -45,9 +49,6 @@ role = user["role"]
 st.sidebar.success(f"מחובר כ{role}")
 
 st.sidebar.header("העדפות")
-
-# Weights
-st.sidebar.subheader("משקולות ציון כללי")
 weight_keys = ["quiz_avg", "quarter_exam", "midterm_mock", "half_semester_final"]
 
 # initialize session state for slider values (percentages)
@@ -80,21 +81,21 @@ def adjust_weights(changed_key: str) -> None:
         st.session_state[f"w_{k}"] = values[k]
 
 
-for k in weight_keys:
-    st.sidebar.slider(
-        f"{CANON[k]['label_he']} (%)",
-        0,
-        100,
-        st.session_state[f"w_{k}"],
-        5,
-        key=f"w_{k}",
-        on_change=adjust_weights,
-        args=(k,),
+with st.sidebar.expander("משקולות ציון כללי"):
+    for k in weight_keys:
+        st.slider(
+            f"{CANON[k]['label_he']} (%)",
+            0,
+            100,
+            st.session_state[f"w_{k}"],
+            5,
+            key=f"w_{k}",
+            on_change=adjust_weights,
+            args=(k,),
+        )
+    st.caption(
+        "המשקולות קובעות את ההשפעה היחסית של כל קריטריון בציון המשוקלל. הסכום הכולל צריך להיות 100%."
     )
-
-st.sidebar.caption(
-    "המשקולות קובעות את ההשפעה היחסית של כל קריטריון בציון המשוקלל. הסכום הכולל צריך להיות 100%."
-)
 
 weights = {k: st.session_state[f"w_{k}"] / 100 for k in weight_keys}
 if sum(weights.values()) == 0:
@@ -102,12 +103,11 @@ if sum(weights.values()) == 0:
 else:
     weights = normalize_weights(weights)
 
-# Thresholds
-st.sidebar.subheader("קריטריונים (סינון)")
-low_pct_default = int(SCHEMA["thresholds_default"]["low_percentile"])
-significant_drop_default = int(SCHEMA["thresholds_default"]["significant_drop_points"])
-low_percentile_thr = st.sidebar.number_input("אחוזון ארצי נמוך מ־", 0, 100, low_pct_default, 1)
-drop_thr = st.sidebar.number_input("ירידה משמעותית (נק') בין סמסטרים", 0, 100, significant_drop_default, 1)
+with st.sidebar.expander("קריטריונים (סינון)"):
+    low_pct_default = int(SCHEMA["thresholds_default"]["low_percentile"])
+    significant_drop_default = int(SCHEMA["thresholds_default"]["significant_drop_points"])
+    low_percentile_thr = st.number_input("אחוזון ארצי נמוך מ־", 0, 100, low_pct_default, 1)
+    drop_thr = st.number_input("ירידה משמעותית (נק') בין סמסטרים", 0, 100, significant_drop_default, 1)
 
 if role != "תלמיד":
     st.markdown("### 1) העלאת קובץ Excel (או שימוש בדוגמה)")
@@ -227,25 +227,48 @@ if "student_name" in df.columns:
     else:
         student = st.selectbox("בחר תלמיד/ה", sorted(df["student_name"].dropna().unique().tolist()))
     sdf = df[df["student_name"] == student].copy()
-    st.write("רשומות תלמיד (לפי סמסטר/אירוע):")
-    st.dataframe(sdf)
 
-    if "semester" in sdf.columns:
-        for metric in ["quiz_avg", "quarter_exam", "midterm_mock", "half_semester_final"]:
-            if metric in sdf.columns:
-                st.write(f"מדד: {CANON[metric]['label_he']}")
-                try:
-                    pivot_m = (
-                        sdf.pivot_table(index="semester", values=metric, aggfunc="mean").reset_index()
-                    )
-                    pivot_m = pivot_m.sort_values("semester")
-                    st.line_chart(pivot_m.set_index("semester"))
-                except Exception as e:
-                    st.info(f"לא ניתן להציג גרף ל-{metric}: {e}")
+    tab_grades, tab_comments, tab_graphs = st.tabs(["📊 ציונים", "📝 הערות", "📈 גרפים"])
 
-    if "teacher_comment" in sdf.columns:
-        st.subheader("הערכת המור")
-        st.write(" \n".join([str(x) for x in sdf["teacher_comment"].dropna().unique().tolist()]))
-    if "coordinator_comment" in sdf.columns:
-        st.subheader("הערכת הרכז")
-        st.write(" \n".join([str(x) for x in sdf["coordinator_comment"].dropna().unique().tolist()]))
+    with tab_grades:
+        st.subheader("📊 ציונים")
+        with st.expander("רשומות תלמיד (לפי סמסטר/אירוע)"):
+            st.dataframe(sdf)
+
+    with tab_comments:
+        st.subheader("📝 הערות")
+        comments_store = st.session_state["teacher_comments"]
+        base_comments = []
+        if "teacher_comment" in sdf.columns:
+            base_comments = [str(x) for x in sdf["teacher_comment"].dropna().unique().tolist()]
+        comments_store.setdefault(student, [])
+        key_new = f"new_comment_{student}"
+        if role == "מורה":
+            new_comment = st.text_area("הוסף הערה חדשה", key=key_new)
+            if st.button("שמור הערה", key=f"save_comment_{student}"):
+                if new_comment.strip():
+                    comments_store[student].append(new_comment.strip())
+                    st.session_state[key_new] = ""
+        all_comments = base_comments + comments_store.get(student, [])
+        if all_comments:
+            for c in all_comments:
+                st.write(c)
+        else:
+            st.write("אין הערות שמורות.")
+        if "coordinator_comment" in sdf.columns:
+            with st.expander("הערכת הרכז"):
+                st.write(" \n".join([str(x) for x in sdf["coordinator_comment"].dropna().unique().tolist()]))
+    with tab_graphs:
+        st.subheader("📈 גרפים")
+        if "semester" in sdf.columns:
+            for metric in ["quiz_avg", "quarter_exam", "midterm_mock", "half_semester_final"]:
+                if metric in sdf.columns:
+                    with st.expander(f"מדד: {CANON[metric]['label_he']}"):
+                        try:
+                            pivot_m = (
+                                sdf.pivot_table(index="semester", values=metric, aggfunc="mean").reset_index()
+                            )
+                            pivot_m = pivot_m.sort_values("semester")
+                            st.line_chart(pivot_m.set_index("semester"))
+                        except Exception as e:
+                            st.info(f"לא ניתן להציג גרף ל-{metric}: {e}")
