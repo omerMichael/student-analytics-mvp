@@ -3,7 +3,12 @@ import streamlit as st
 
 from src.schema import load_schema, canonical_map
 from src.data_loader import load_excel, normalize_dataframe
-from src.analytics import compute_overall_score, compute_trends, apply_flags, normalize_weights
+from src.analytics import (
+    compute_overall_score,
+    compute_trends,
+    apply_flags,
+    normalize_weights,
+)
 from src.db import init_db, insert_dataframe, load_records
 
 st.set_page_config(page_title="Student Analytics MVP", layout="wide")
@@ -16,9 +21,11 @@ CANON = canonical_map(SCHEMA)
 # Initialize database connection
 conn = init_db()
 
-# In-memory store for teacher comments
-if "teacher_comments" not in st.session_state:
-    st.session_state["teacher_comments"] = {}
+# In-memory store for teacher comments keyed by student name
+if "comments" not in st.session_state:
+    st.session_state["comments"] = {}
+if "comment_saved" not in st.session_state:
+    st.session_state["comment_saved"] = False
 
 # Simple authentication data
 USERS = {
@@ -29,15 +36,25 @@ USERS = {
 
 
 def login() -> None:
-    st.sidebar.subheader("כניסה")
-    username = st.sidebar.text_input("שם משתמש")
-    password = st.sidebar.text_input("סיסמה", type="password")
-    if st.sidebar.button("התחבר"):
+    """Render a simple login form in the main area."""
+
+    st.header("🔐 כניסה")
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        with st.form("login_form"):
+            username = st.text_input("שם משתמש", placeholder="Username")
+            password = st.text_input("סיסמה", type="password", placeholder="Password")
+            submitted = st.form_submit_button("התחבר", use_container_width=True)
+        st.caption(
+            "Roles available: 👩‍🏫 מורה, 👨‍💼 רכז, 🎓 תלמיד. "
+            "הפרטים רגישים לאותיות גדולות וקטנות."
+        )
+    if submitted:
         user = USERS.get(username)
         if user and user["password"] == password:
             st.session_state["user"] = {"username": username, **user}
         else:
-            st.sidebar.error("פרטי התחברות שגויים")
+            st.error("פרטי התחברות שגויים")
 
 
 if "user" not in st.session_state:
@@ -184,71 +201,89 @@ df = compute_overall_score(df_db, weights)
 df, trend_fields = compute_trends(df, list(weights.keys()))
 df = apply_flags(df, low_percentile_thr, drop_thr, trend_fields)
 
-st.markdown("### דשבורד כיתתי")
-view_df = df.copy()
-show_cols = [
-    c
-    for c in [
-        "student_name",
-        "class_name",
-        "semester",
-        "overall_score",
-        "quiz_avg",
-        "quarter_exam",
-        "midterm_mock",
-        "half_semester_final",
-        "national_percentile",
-        "flagged",
-    ]
-    if c in view_df.columns
-]
-st.dataframe(
-    view_df[show_cols].sort_values(
-        by=[c for c in ["flagged", "overall_score"] if c in show_cols],
-        ascending=[False, False],
-    )
-)
-
-filtered = view_df[view_df["flagged"]] if "flagged" in view_df.columns else view_df
-csv = filtered.to_csv(index=False).encode("utf-8-sig")
-st.download_button(
-    "⬇️ הורד CSV מסונן (קריטריונים)",
-    data=csv,
-    file_name="filtered_students.csv",
-    mime="text/csv",
-)
-
-st.markdown("---")
-st.markdown("### פרופיל תלמיד")
+student = None
+sdf = pd.DataFrame()
 if "student_name" in df.columns:
     if role == "תלמיד":
         student = user.get("student_name")
-        st.write(f"תלמיד/ה: {student}")
     else:
-        student = st.selectbox("בחר תלמיד/ה", sorted(df["student_name"].dropna().unique().tolist()))
+        student = st.selectbox(
+            "בחר תלמיד/ה", sorted(df["student_name"].dropna().unique().tolist())
+        )
     sdf = df[df["student_name"] == student].copy()
 
-    tab_grades, tab_comments, tab_graphs = st.tabs(["📊 ציונים", "📝 הערות", "📈 גרפים"])
+tab_scores, tab_comments, tab_graphs = st.tabs(["📊 ציונים", "📝 הערות", "📈 גרפים"])
 
-    with tab_grades:
-        st.subheader("📊 ציונים")
+with tab_scores:
+    st.markdown("### דשבורד כיתתי")
+    view_df = df.copy()
+    show_cols = [
+        c
+        for c in [
+            "student_name",
+            "class_name",
+            "semester",
+            "overall_score",
+            "quiz_avg",
+            "quarter_exam",
+            "midterm_mock",
+            "half_semester_final",
+            "national_percentile",
+            "flagged",
+        ]
+        if c in view_df.columns
+    ]
+    st.dataframe(
+        view_df[show_cols].sort_values(
+            by=[c for c in ["flagged", "overall_score"] if c in show_cols],
+            ascending=[False, False],
+        )
+    )
+    filtered = view_df[view_df["flagged"]] if "flagged" in view_df.columns else view_df
+    csv = filtered.to_csv(index=False).encode("utf-8-sig")
+    st.download_button(
+        "⬇️ הורד CSV מסונן (קריטריונים)",
+        data=csv,
+        file_name="filtered_students.csv",
+        mime="text/csv",
+    )
+    if not sdf.empty:
+        st.markdown("---")
+        st.subheader("פרופיל תלמיד")
         with st.expander("רשומות תלמיד (לפי סמסטר/אירוע)"):
             st.dataframe(sdf)
 
-    with tab_comments:
-        st.subheader("📝 הערות")
-        comments_store = st.session_state["teacher_comments"]
-        base_comments = []
+with tab_comments:
+    st.subheader("הערות")
+    if sdf.empty:
+        st.info("אין נתונים עבור תלמיד/ה זה.")
+    else:
+        comments_store = st.session_state["comments"]
+        base_comments: list[str] = []
         if "teacher_comment" in sdf.columns:
             base_comments = [str(x) for x in sdf["teacher_comment"].dropna().unique().tolist()]
-        comments_store.setdefault(student, [])
-        key_new = f"new_comment_{student}"
+
+        comment_key = f"comment_input_{student}"
+        st.session_state.setdefault(comment_key, "")
         if role == "מורה":
-            new_comment = st.text_area("הוסף הערה חדשה", key=key_new)
-            if st.button("שמור הערה", key=f"save_comment_{student}"):
-                if new_comment.strip():
-                    comments_store[student].append(new_comment.strip())
-                    st.session_state[key_new] = ""
+            st.text_area("הוסף הערה חדשה", key=comment_key)
+
+            def _save_comment(s_name: str, key: str) -> None:
+                comment = st.session_state.get(key, "").strip()
+                if comment:
+                    st.session_state["comments"].setdefault(s_name, []).append(comment)
+                    st.session_state[key] = ""
+                    st.session_state["comment_saved"] = True
+
+            st.button(
+                "שמור הערה",
+                key=f"save_comment_{student}",
+                on_click=_save_comment,
+                args=(student, comment_key),
+            )
+            if st.session_state["comment_saved"]:
+                st.success("ההערה נשמרה")
+                st.session_state["comment_saved"] = False
         all_comments = base_comments + comments_store.get(student, [])
         if all_comments:
             for c in all_comments:
@@ -258,17 +293,18 @@ if "student_name" in df.columns:
         if "coordinator_comment" in sdf.columns:
             with st.expander("הערכת הרכז"):
                 st.write(" \n".join([str(x) for x in sdf["coordinator_comment"].dropna().unique().tolist()]))
-    with tab_graphs:
-        st.subheader("📈 גרפים")
-        if "semester" in sdf.columns:
-            for metric in ["quiz_avg", "quarter_exam", "midterm_mock", "half_semester_final"]:
-                if metric in sdf.columns:
-                    with st.expander(f"מדד: {CANON[metric]['label_he']}"):
-                        try:
-                            pivot_m = (
-                                sdf.pivot_table(index="semester", values=metric, aggfunc="mean").reset_index()
-                            )
-                            pivot_m = pivot_m.sort_values("semester")
-                            st.line_chart(pivot_m.set_index("semester"))
-                        except Exception as e:
-                            st.info(f"לא ניתן להציג גרף ל-{metric}: {e}")
+
+with tab_graphs:
+    st.subheader("גרפים")
+    if sdf.empty:
+        st.info("אין נתונים עבור תלמיד/ה זה.")
+    elif "semester" in sdf.columns:
+        for metric in ["quiz_avg", "quarter_exam", "midterm_mock", "half_semester_final"]:
+            if metric in sdf.columns:
+                with st.expander(f"מדד: {CANON[metric]['label_he']}"):
+                    try:
+                        pivot_m = sdf.pivot_table(index="semester", values=metric, aggfunc="mean").reset_index()
+                        pivot_m = pivot_m.sort_values("semester")
+                        st.line_chart(pivot_m.set_index("semester"))
+                    except Exception as e:
+                        st.info(f"לא ניתן להציג גרף ל-{metric}: {e}")
