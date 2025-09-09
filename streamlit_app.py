@@ -1,16 +1,16 @@
-import json
-import io
-import numpy as np
 import pandas as pd
 import streamlit as st
+
+from src.schema import load_schema, canonical_map
+from src.data_loader import load_excel, normalize_dataframe
+from src.analytics import compute_overall_score, compute_trends, apply_flags
 
 st.set_page_config(page_title="Student Analytics MVP", layout="wide")
 st.title("📊 Student Analytics — Excel → Insights (MVP)")
 
-# Load schema
-with open("schema.json", "r", encoding="utf-8") as f:
-    SCHEMA = json.load(f)
-CANON = {c["key"]: c for c in SCHEMA["canonical_fields"]}
+# Load schema and canonical field map
+SCHEMA = load_schema()
+CANON = canonical_map(SCHEMA)
 
 st.sidebar.header("העדפות")
 role = st.sidebar.radio("תפקיד", ["רכז", "מורה", "תלמיד"], index=0, horizontal=True)
@@ -25,7 +25,6 @@ w_sum = sum(weights.values())
 if w_sum == 0:
     st.sidebar.warning("שימו לב: סכום המשקולות 0 — לא יחושב ציון כללי.")
 else:
-    # normalize to 1.0
     weights = {k: v / w_sum for k, v in weights.items()}
 
 # Thresholds
@@ -44,7 +43,7 @@ if uploaded is None:
 
 if uploaded:
     try:
-        df_raw = pd.read_excel(uploaded)
+        df_raw = load_excel(uploaded)
     except Exception as e:
         st.error(f"שגיאה בקריאת הקובץ: {e}")
         st.stop()
@@ -72,88 +71,48 @@ if uploaded:
         with d1:
             st.code(key, language="text")
         with d2:
-            if required:
-                st.markdown(f"**{label_he}**  \n*חובה*")
-            else:
-                st.markdown(label_he)
+            st.markdown(f"**{label_he}**  \n*חובה*") if required else st.markdown(label_he)
         with d3:
             default_index = 0
-            # naive heuristic: find the best match by containment
             for i, col in enumerate(columns[1:], start=1):
                 if any(hint in str(col) for hint in c.get("examples", [])):
                     default_index = i
                     break
             mappings[key] = st.selectbox("", columns, index=default_index, key=f"map_{key}")
 
-    # Validate required
     missing_required = [c["label_he"] for c in SCHEMA["canonical_fields"] if c["required"] and mappings[c["key"]] == "(ללא)"]
     if missing_required:
         st.error("חסרות עמודות חובה: " + ", ".join(missing_required))
         st.stop()
 
-    # Build normalized DataFrame
-    df = pd.DataFrame()
-    for k in mappings:
-        if mappings[k] != "(ללא)":
-            df[k] = df_raw[mappings[k]]
-
-    # Coerce numeric fields to numbers
-    numeric_keys = ["quiz_avg", "quarter_exam", "midterm_mock", "half_semester_final", "national_percentile", "homework_rate"]
-    for nk in numeric_keys:
-        if nk in df.columns:
-            df[nk] = pd.to_numeric(df[nk], errors="coerce")
-
-    # Compute overall score
-    def overall(row):
-        s = 0.0
-        for k, w in weights.items():
-            s += w * float(row.get(k, np.nan))
-        return s
-    if any(k in df.columns for k in weights.keys()):
-        df["overall_score"] = df.apply(overall, axis=1)
-
-    # Trend between semesters (A/B) — only if we have semester + key fields
-    trend_fields = [k for k in weights.keys() if k in df.columns]
-    trends = []
-    if "semester" in df.columns and "student_name" in df.columns and trend_fields:
-        # Expect A/B in semester col
-        pivot = df.pivot_table(index="student_name", columns="semester", values=trend_fields, aggfunc="mean")
-        # flatten multiindex
-        pivot.columns = [f"{k}_{sem}" for (k, sem) in pivot.columns.to_flat_index()]
-        pivot = pivot.reset_index()
-        trends = []
-        for k in trend_fields:
-            col_a = f"{k}_א"
-            col_b = f"{k}_ב"
-            if col_a in pivot.columns and col_b in pivot.columns:
-                pivot[f"delta_{k}"] = pivot[col_b] - pivot[col_a]
-                trends.append(f"delta_{k}")
-        df = df.merge(pivot[["student_name"] + [c for c in pivot.columns if c.startswith("delta_")]], on="student_name", how="left")
-
-    # Criteria flags
-    flags = pd.Series([False]*len(df))
-    if "national_percentile" in df.columns:
-        flags = flags | (df["national_percentile"] < low_percentile_thr)
-    for k in trend_fields:
-        dcol = f"delta_{k}"
-        if dcol in df.columns:
-            flags = flags | (df[dcol] <= -abs(drop_thr))
-    df["flagged"] = flags
+    df = normalize_dataframe(df_raw, mappings)
+    df = compute_overall_score(df, weights)
+    df, trend_fields = compute_trends(df, list(weights.keys()))
+    df = apply_flags(df, low_percentile_thr, drop_thr, trend_fields)
 
     st.markdown("---")
     st.markdown("### 3) דשבורד כיתתי")
-    # Group by latest semester if exists, else as-is
     view_df = df.copy()
-    # Show compact set
-    show_cols = [c for c in ["student_name", "class_name", "semester", "overall_score", 
-                             "quiz_avg", "quarter_exam", "midterm_mock", "half_semester_final",
-                             "national_percentile", "flagged"] if c in view_df.columns]
-    st.dataframe(view_df[show_cols].sort_values(by=[c for c in ["flagged","overall_score"] if c in show_cols], ascending=[False, False]))
+    show_cols = [c for c in [
+        "student_name", "class_name", "semester", "overall_score",
+        "quiz_avg", "quarter_exam", "midterm_mock", "half_semester_final",
+        "national_percentile", "flagged"
+    ] if c in view_df.columns]
+    st.dataframe(
+        view_df[show_cols].sort_values(
+            by=[c for c in ["flagged", "overall_score"] if c in show_cols],
+            ascending=[False, False]
+        )
+    )
 
-    # Download filtered
     filtered = view_df[view_df["flagged"]] if "flagged" in view_df.columns else view_df
     csv = filtered.to_csv(index=False).encode("utf-8-sig")
-    st.download_button("⬇️ הורד CSV מסונן (קריטריונים)", data=csv, file_name="filtered_students.csv", mime="text/csv")
+    st.download_button(
+        "⬇️ הורד CSV מסונן (קריטריונים)",
+        data=csv,
+        file_name="filtered_students.csv",
+        mime="text/csv",
+    )
 
     st.markdown("---")
     st.markdown("### 4) פרופיל תלמיד")
@@ -163,22 +122,19 @@ if uploaded:
         st.write("רשומות תלמיד (לפי סמסטר/אירוע):")
         st.dataframe(sdf)
 
-        # Simple charts: show evolution per metric by semester (A/B) if available
         if "semester" in sdf.columns:
             for metric in ["quiz_avg", "quarter_exam", "midterm_mock", "half_semester_final"]:
                 if metric in sdf.columns:
                     st.write(f"מדד: {CANON[metric]['label_he']}")
                     try:
-                        # Plot with streamlit's built-in line_chart (simple)
                         pivot_m = sdf.pivot_table(index="semester", values=metric, aggfunc="mean").reset_index()
                         pivot_m = pivot_m.sort_values("semester")
                         st.line_chart(pivot_m.set_index("semester"))
                     except Exception as e:
                         st.info(f"לא ניתן להציג גרף ל-{metric}: {e}")
 
-        # Show comments
         if "teacher_comment" in sdf.columns:
-            st.subheader("הערכת המורה")
+            st.subheader("הערכת המור")
             st.write(" \n".join([str(x) for x in sdf["teacher_comment"].dropna().unique().tolist()]))
         if "coordinator_comment" in sdf.columns:
             st.subheader("הערכת הרכז")
