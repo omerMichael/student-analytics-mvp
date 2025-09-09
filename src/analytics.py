@@ -3,6 +3,15 @@ import numpy as np
 import pandas as pd
 
 
+def normalize_weights(weights: dict[str, float]) -> dict[str, float]:
+    """Normalize weight values so they sum to 1.0.
+
+    If the total weight is zero, the original mapping is returned unchanged.
+    """
+    total = sum(weights.values())
+    return {k: v / total for k, v in weights.items()} if total else weights
+
+
 def compute_overall_score(df: pd.DataFrame, weights: dict[str, float]) -> pd.DataFrame:
     """Compute weighted overall score for each row if applicable."""
     def overall(row):

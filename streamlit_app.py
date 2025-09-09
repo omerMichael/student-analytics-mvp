@@ -3,7 +3,7 @@ import streamlit as st
 
 from src.schema import load_schema, canonical_map
 from src.data_loader import load_excel, normalize_dataframe
-from src.analytics import compute_overall_score, compute_trends, apply_flags
+from src.analytics import compute_overall_score, compute_trends, apply_flags, normalize_weights
 from src.db import init_db, insert_dataframe, load_records
 
 st.set_page_config(page_title="Student Analytics MVP", layout="wide")
@@ -56,7 +56,7 @@ w_sum = sum(weights.values())
 if w_sum == 0:
     st.sidebar.warning("שימו לב: סכום המשקולות 0 — לא יחושב ציון כללי.")
 else:
-    weights = {k: v / w_sum for k, v in weights.items()}
+    weights = normalize_weights(weights)
 
 # Thresholds
 st.sidebar.subheader("קריטריונים (סינון)")
