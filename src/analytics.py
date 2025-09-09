@@ -6,23 +6,60 @@ import pandas as pd
 def normalize_weights(weights: dict[str, float]) -> dict[str, float]:
     """Normalize weight values so they sum to 1.0.
 
-    If the total weight is zero, the original mapping is returned unchanged.
+    Parameters
+    ----------
+    weights:
+        Mapping from field name to its weight (may be any positive number).
+
+    Returns
+    -------
+    dict[str, float]
+        Normalized weights that sum to ``1.0``.
+
+    Raises
+    ------
+    ValueError
+        If ``weights`` is empty, contains negative values or the total weight
+        is not positive.  This guards against subtle bugs later in the
+        calculation pipeline.
     """
+
+    if not weights:
+        raise ValueError("weights mapping must not be empty")
+    if any(v < 0 for v in weights.values()):
+        raise ValueError("weights must be non-negative")
+
     total = sum(weights.values())
-    return {k: v / total for k, v in weights.items()} if total else weights
+    if total <= 0:
+        raise ValueError("total weight must be positive")
+
+    return {k: v / total for k, v in weights.items()}
 
 
 def compute_overall_score(df: pd.DataFrame, weights: dict[str, float]) -> pd.DataFrame:
-    """Compute weighted overall score for each row if applicable."""
-    def overall(row):
-        s = 0.0
-        for k, w in weights.items():
-            if k in df.columns:
-                s += w * float(row.get(k, np.nan))
-        return s
+    """Compute a weighted overall score for each row if applicable.
 
-    if any(k in df.columns for k in weights.keys()):
-        df["overall_score"] = df.apply(overall, axis=1)
+    The function is defensive against empty inputs and non-numeric values so
+    that upstream data issues do not crash the application.  Any fields missing
+    from ``df`` are simply ignored.
+    """
+
+    if df.empty or not weights:
+        return df
+
+    def overall(row: pd.Series) -> float:
+        total = 0.0
+        for key, w in weights.items():
+            if key in df.columns:
+                try:
+                    val = float(row.get(key, np.nan))
+                except (TypeError, ValueError):
+                    val = np.nan
+                if not np.isnan(val):
+                    total += w * val
+        return total
+
+    df["overall_score"] = df.apply(overall, axis=1)
     return df
 
 
