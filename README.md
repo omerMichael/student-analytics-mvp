@@ -1,37 +1,60 @@
-# 📊 Student Analytics MVP (Excel → Insights)
+# Student Analytics MVP (Excel → Insights)
 
-מערכת אינטראקטיבית לניתוח דוחות **Excel** מבתי ספר/תוכניות חינוך.  
-המערכת מאפשרת למורים, רכזים ותלמידים להעלות קובץ דוחות כיתתי, למפות עמודות לשדות סטנדרטיים, ולקבל דשבורד ותובנות בצורה ידידותית.
+## Overview
+This project analyzes student performance data from Excel files. It normalizes incoming columns to a canonical schema and computes weighted scores, semester trends, and configurable flags. The interface is built with [Streamlit](https://streamlit.io/), while core logic lives in standalone Python modules for data loading, schema management, and analytics.
 
----
+## Features
+- Upload Excel files with student grades
+- Normalize columns to a canonical schema
+- Compute weighted scores and semester trends
+- Flag students based on configurable criteria
+- Export filtered results to CSV
+- Streamlit UI for browsing, filtering, and visualization
 
-## ✨ תכונות מרכזיות
-- 📂 **ייבוא קבצי Excel/CSV** של דוחות תלמידים.  
-- 📝 **מיפוי עמודות בעברית** → שם תלמיד, ממוצע בחנים, מבחני רבעון, מתכונת, חציון/מחצית, אחוזון ארצי, הערכת מורה.  
-- 📊 **דשבורד כיתתי**: טבלה עם ציונים, מגמות, דגלים (אחוזון נמוך / ירידה חדה בציונים).  
-- 👤 **פרופיל תלמיד**: גרף התקדמות לפי סמסטר, ממוצעים, הערות מורה/רכז.  
-- ⚖️ **משקולות דינמיות**: קביעת אחוזי חשיבות לבחנים/מבחנים שונים.  
-- 🚩 **דגלים חכמים**:
-  - אחוזון ארצי נמוך מהסף.
-  - ירידה חדה בין סמסטרים.  
-- 📤 **ייצוא נתונים** ל־CSV (בהמשך גם PDF).
-- 🔐 **התחברות בסיסית** למורה/רכז/תלמיד.
-- 🗄️ **שמירת נתונים ב-SQLite** וטעינה מהדאטאבייס במקום בזיכרון בלבד.
+## Setup
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/OmerMichael/student-analytics-mvp.git
+   cd student-analytics-mvp
+   ```
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   ```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Start the application:
+   ```bash
+   streamlit run streamlit_app.py
+   ```
 
----
+## Usage
+1. Upload an Excel file containing student grades.
+2. Select a student to view their normalized data and computed metrics.
+3. Export filtered results to CSV for further analysis.
+4. *(Optional)* View basic charts or add comments within the UI.
 
+## Development
+- Core modules live under `src/`:
+  - `data_loader.py`
+  - `schema.py`
+  - `analytics.py`
+- `streamlit_app.py` handles the UI only and imports these modules.
+- Recommended: add unit tests for data transformation logic using `pytest`.
 
+## Known Limitations
+- Single-file Streamlit session (no persistence)
+- Manual schema mapping for some fields
+- Basic visualization (charts are minimal)
 
----
+## Roadmap
+- Add persistent storage
+- Add user authentication and roles
+- Improve data visualization
+- Expand test coverage
 
-## ⚡ התקנה והרצה
-
-### דרישות
-- Python 3.10+
-- pip
-
-### התקנה
-```bash
-git clone https://github.com/OmerMichael/student-analytics-mvp.git
-cd student-analytics-mvp
-pip install -r requirements.txt
+## License
+This project is licensed under the [MIT License](LICENSE).
