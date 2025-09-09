@@ -48,12 +48,56 @@ st.sidebar.header("העדפות")
 
 # Weights
 st.sidebar.subheader("משקולות ציון כללי")
-weights = {}
-for k in ["quiz_avg", "quarter_exam", "midterm_mock", "half_semester_final"]:
-    default = SCHEMA["weights_default"].get(k, 0.0)
-    weights[k] = st.sidebar.slider(CANON[k]["label_he"], 0.0, 1.0, float(default), 0.05)
-w_sum = sum(weights.values())
-if w_sum == 0:
+weight_keys = ["quiz_avg", "quarter_exam", "midterm_mock", "half_semester_final"]
+
+# initialize session state for slider values (percentages)
+for k in weight_keys:
+    skey = f"w_{k}"
+    if skey not in st.session_state:
+        default = SCHEMA["weights_default"].get(k, 0.0)
+        st.session_state[skey] = int(default * 100)
+
+
+def adjust_weights(changed_key: str) -> None:
+    values = {k: st.session_state[f"w_{k}"] for k in weight_keys}
+    changed_val = values[changed_key]
+    others = [k for k in weight_keys if k != changed_key]
+    other_total = sum(values[o] for o in others)
+    remaining = 100 - changed_val
+    if other_total == 0:
+        for o in others:
+            values[o] = remaining / len(others) if others else 0
+    else:
+        ratio = remaining / other_total
+        for o in others:
+            values[o] = values[o] * ratio
+    for k in weight_keys:
+        values[k] = int(round(values[k] / 5) * 5)
+    diff = 100 - sum(values.values())
+    if diff and others:
+        values[others[0]] += diff
+    for k in weight_keys:
+        st.session_state[f"w_{k}"] = values[k]
+
+
+for k in weight_keys:
+    st.sidebar.slider(
+        f"{CANON[k]['label_he']} (%)",
+        0,
+        100,
+        st.session_state[f"w_{k}"],
+        5,
+        key=f"w_{k}",
+        on_change=adjust_weights,
+        args=(k,),
+    )
+
+st.sidebar.caption(
+    "המשקולות קובעות את ההשפעה היחסית של כל קריטריון בציון המשוקלל. הסכום הכולל צריך להיות 100%."
+)
+
+weights = {k: st.session_state[f"w_{k}"] / 100 for k in weight_keys}
+if sum(weights.values()) == 0:
     st.sidebar.warning("שימו לב: סכום המשקולות 0 — לא יחושב ציון כללי.")
 else:
     weights = normalize_weights(weights)
@@ -103,7 +147,9 @@ if role != "תלמיד":
             with d1:
                 st.code(key, language="text")
             with d2:
-                st.markdown(f"**{label_he}**  \n*חובה*") if required else st.markdown(label_he)
+                label_he_str = str(label_he)
+                text = f"{label_he_str} (חובה)" if required else label_he_str
+                st.write(text)
             with d3:
                 default_index = 0
                 for i, col in enumerate(columns[1:], start=1):
